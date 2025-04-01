@@ -1,0 +1,11 @@
+Metadata-Version: 2.1
+Name: mlarchitect
+Version: 1.2
+Requires-Python: >=3.6
+Requires-Dist: numpy
+Requires-Dist: pandas
+Requires-Dist: scikit-learn
+Requires-Dist: xgboost
+Requires-Dist: lightgbm
+Requires-Dist: optuna
+Requires-Dist: pyarrow

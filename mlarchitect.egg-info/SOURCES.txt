@@ -1,0 +1,15 @@
+setup.py
+mlarchitect/__init__.py
+mlarchitect/const.py
+mlarchitect/feature_engineering.py
+mlarchitect/feature_selection.py
+mlarchitect/joiner.py
+mlarchitect/model_config_class.py
+mlarchitect/model_manager.py
+mlarchitect/process_transformation.py
+mlarchitect/util.py
+mlarchitect.egg-info/PKG-INFO
+mlarchitect.egg-info/SOURCES.txt
+mlarchitect.egg-info/dependency_links.txt
+mlarchitect.egg-info/requires.txt
+mlarchitect.egg-info/top_level.txt
