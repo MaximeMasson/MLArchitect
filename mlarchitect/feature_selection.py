@@ -248,8 +248,19 @@ class FeatureSelection:
             logger.info(f"Excluding {len(self.excluded_features)} features from testing")
             logger.debug(f"Excluded features: {self.excluded_features}")
             
+            # Create a list of features to exclude, but ensure cv_column is kept if needed
+            features_to_exclude = self.excluded_features.copy()
+            if cv_column and cv_column in features_to_exclude:
+                logger.info(f"Keeping {cv_column} in data for cross-validation although it's excluded from features")
+                features_to_exclude.remove(cv_column)
+            
             # Remove excluded features from testing data
-            testing_features = [col for col in self.data.columns if col != target and col not in self.excluded_features]
+            testing_features = [col for col in self.data.columns if col != target and col not in features_to_exclude]
+            
+            # Ensure cv_column is in the testing features if needed
+            if cv_column and cv_column not in testing_features and cv_column in self.data.columns:
+                testing_features.append(cv_column)
+                
             working_data = self.data[testing_features + [target]]
         else:
             working_data = self.data
@@ -273,12 +284,30 @@ class FeatureSelection:
         
         # Calculate feature importance with proper time-series handling
         logger.info(f"Calculating feature importance using {self.model_name} with {cv_folds}-fold CV...")
+        
+        # CRITICAL FIX: Prepare data for model training properly
+        # For quick_feature_evaluation, we need:
+        # 1. Include all features in X for model training
+        # 2. Make sure cv_column is present for time-series CV but not used in model
+        X_for_eval = X.copy()  # Start with X containing ALL features, including DATE column if it exists
+        
+        # Check if we need to exclude cv_column from model features
+        if cv_column and cv_column in X_for_eval.columns:
+            logger.info(f"Using {cv_column} for CV splits but excluding it from model features")
+            model_features = [col for col in X_for_eval.columns if col != cv_column]
+        else:
+            # If cv_column is not in X, we can't use it for CV and must warn the user
+            if cv_column:
+                logger.warning(f"{cv_column} specified for CV but not found in data after filtering - cannot use for CV")
+                cv_column = None
+            model_features = X_for_eval.columns.tolist()
+        
         self.feature_importance = self.quick_feature_evaluation(
-            X=X[working_data.columns.drop(target)], 
+            X=X_for_eval,  # Pass ALL features including DATE if present
             y=y,
             model_name=self.model_name,
             cv_folds=cv_folds,
-            cv_column=cv_column  # Pass the cv_column parameter for time-series handling
+            cv_column=cv_column  # Pass cv_column name (or None if not available)
         )
         
         # Restore the original data including excluded features
@@ -288,7 +317,7 @@ class FeatureSelection:
         # Check if we need to add excluded features back to selected features
         if self.excluded_features:
             logger.info(f"Adding {len(self.excluded_features)} excluded features to the selected features")
-            self.top_features.extend([f for f in self.excluded_features if f in original_data.columns])
+            self.top_features.extend([f for f in self.excluded_features if f in original_data.columns and f != cv_column])
             # Remove duplicates while preserving order
             self.top_features = list(dict.fromkeys(self.top_features))
         
@@ -557,22 +586,32 @@ class FeatureSelection:
             raise ValueError(f"X and y have different number of samples: {X.shape[0]} vs {y.shape[0]}")
             
         try:
+            # Get seed from config to use consistently
+            seed = mlarchitect.mlarchitect_config.get('SEED', 42)
+            
             # Take a subsample for quick training if needed
             if self.subsample_ratio < 1.0:
-                seed = mlarchitect.mlarchitect_config.get('SEED', 42)
+                # Ensure stratified sampling if binary classification
+                fit_type = mlarchitect.mlarchitect_config.get('FIT_TYPE', 'regression')
+                stratify_arg = y if fit_type == 'bclass' else None
+                
                 X_sub, X_val, y_sub, y_val = train_test_split(
                     X, y, 
                     train_size=self.subsample_ratio,
-                    random_state=seed
+                    random_state=seed,
+                    stratify=stratify_arg
                 )
                 logger.info(f"Using {len(X_sub)} samples ({self.subsample_ratio*100:.1f}% of data) for feature evaluation")
             else:
                 # Use all data but still create a validation set
-                seed = mlarchitect.mlarchitect_config.get('SEED', 42)
+                fit_type = mlarchitect.mlarchitect_config.get('FIT_TYPE', 'regression')
+                stratify_arg = y if fit_type == 'bclass' else None
+                
                 X_sub, X_val, y_sub, y_val = train_test_split(
                     X, y, 
                     test_size=0.2,
-                    random_state=seed
+                    random_state=seed,
+                    stratify=stratify_arg
                 )
                 logger.info(f"Using {len(X_sub)} samples for feature evaluation")
             
@@ -611,22 +650,32 @@ class FeatureSelection:
             model_manager.y_val = y_val
             model_manager.X_test = X_val.copy()  # Use validation set as test for simplicity
             
-            # Perform cross-validation to get stable feature importances
-            logger.info(f"Performing {cv_folds}-fold cross-validation for feature evaluation")
-            model_manager.perform_cv(cv_folds=cv_folds, cv_column=cv_column)
+            # Create list of features to exclude from training (but keep for CV)
+            excluded_features = []
             
-            # Add cv_column to X_sub if needed for time-series cross-validation
-            if cv_column and cv_column in X.columns and cv_column not in X_sub.columns:
-                logger.info(f"Adding {cv_column} to training data for time-series cross-validation")
-                X_sub[cv_column] = X[cv_column].loc[X_sub.index]
+            # CRITICAL FIX: Properly handle DATE column for CV
+            # Make sure cv_column is present in the data for CV splits
+            if cv_column:
+                # Check if cv_column exists in the data
+                if cv_column not in X_sub.columns:
+                    logger.error(f"CV column '{cv_column}' not found in feature matrix. Available columns: {X_sub.columns.tolist()}")
+                    raise KeyError(f"CV column '{cv_column}' not found in feature matrix")
+                
+                # Always exclude cv_column from model features but keep it for CV
+                excluded_features.append(cv_column)
+                logger.info(f"Excluding {cv_column} from model features but using it for CV splits")
+                
+            # Perform cross-validation with specified excluded features
+            logger.info(f"Performing {cv_folds}-fold cross-validation for feature evaluation")
+            model_manager.perform_cv(cv_folds=cv_folds, cv_column=cv_column, excluded_features=excluded_features)
             
             # Train a single model for feature importances
             logger.info("Training final model for feature importance extraction")
             model_manager.train_final_model(final_tuning=False, save_dir=save_dir, model_name=f"{model_name}_feature_selection")
             
-            # Get feature importance from best model
-            importances_from_cv = []
-            feature_names = X_sub.columns.tolist()
+            # Get all feature names except excluded ones
+            # CRITICAL FIX: Exclude cv_column from feature_names to match model feature dimensions
+            feature_names = [col for col in X_sub.columns if col not in (excluded_features or [])]
             
             if hasattr(model_manager, 'best_model'):
                 best_model = model_manager.best_model
@@ -646,23 +695,27 @@ class FeatureSelection:
                     elif hasattr(model_in_pipeline, 'coef_'):
                         importances = np.abs(model_in_pipeline.coef_).mean(axis=0) if model_in_pipeline.coef_.ndim > 1 else np.abs(model_in_pipeline.coef_)
                     else:
-                        logger.warning("No feature_importances_ or coef_ found in model. Using permutation importance.")
+                        logger.warning("No feature_importances_ or coef_ found in model. Using random importance.")
                         importances = np.random.rand(len(feature_names))
                 else:
-                    logger.warning("Model doesn't provide native feature importance. Using permutation importance.")
+                    logger.warning("Model doesn't provide native importance. Using random importance.")
+                    # Use permutation importance as fallback
                     try:
                         from sklearn.inspection import permutation_importance
+                        X_val_features = X_val[feature_names]  # Only use actual model features
                         result = permutation_importance(
-                            best_model, X_val, y_val, 
+                            best_model, X_val_features, y_val, 
                             n_repeats=10, random_state=seed
                         )
                         importances = result.importances_mean
                     except Exception as e:
                         logger.error(f"Failed to compute permutation importance: {e}")
                         logger.warning("Using random ranking as last resort")
+                        # Use config seed for random ranking too
+                        np.random.seed(seed)
                         importances = np.random.rand(len(feature_names))
                 
-                # Create and sort feature importance DataFrame with additional metrics
+                # Create feature importance DataFrame
                 importance_df = pd.DataFrame({
                     'Feature': feature_names,
                     'Importance': importances,
@@ -681,13 +734,8 @@ class FeatureSelection:
                 importance_df['Rank'] = np.arange(1, len(importance_df) + 1)
                 
                 # Select top features based on top_features_ratio
-                num_top_features = max(1, int(len(X.columns) * self.top_features_ratio))
+                num_top_features = max(1, int(len(feature_names) * self.top_features_ratio))
                 self.top_features = importance_df.head(num_top_features)['Feature'].tolist()
-                
-                # Optionally save the model
-                if save_model and hasattr(model_manager, 'best_model'):
-                    model_path = model_manager.save_model(save_dir=save_dir, model_name=f"{model_name}_feature_selection")
-                    logger.info(f"Feature selection model saved to {save_dir}")
                 
                 logger.info(f"Selected top {num_top_features} features ({self.top_features_ratio*100:.1f}% of all features)")
                 
@@ -895,6 +943,7 @@ class FeatureSelection:
         try:
             # Take a subset of the data if specified
             if n_samples is not None and n_samples < len(X):
+                # Get seed from config
                 seed = mlarchitect.mlarchitect_config.get('SEED', 42)
                 X_sample, _, y_sample, _ = train_test_split(
                     X, y, 

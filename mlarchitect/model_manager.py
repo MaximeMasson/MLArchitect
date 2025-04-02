@@ -130,7 +130,7 @@ class ModelManager:
         # For test set:
         self.X_test = self.df_test.copy()
 
-    def perform_cv(self, cv_folds: int = None, cv_column: str = None, n_trials: int = 10):
+    def perform_cv(self, cv_folds: int = None, cv_column: str = None, n_trials: int = 10, excluded_features=None):
         """
         Perform cross-validation with out-of-fold predictions.
 
@@ -154,9 +154,18 @@ class ModelManager:
         cv_folds (int): Number of folds for cross-validation (defaults to config value).
         cv_column (str): Column name to use for grouping splits. If provided, CV is done on unique groups.
         n_trials (int): Maximum number of Optuna trials per fold (only used if tuning is enabled).
+        excluded_features (list): Optional list of features to exclude from training but keep for CV.
         """
         logger.info("Starting cross-validation with out-of-fold predictions" + 
                   (" using Optuna for tuning" if self.tuning else ""))
+        
+        # Initialize excluded_features if not provided
+        if excluded_features is None:
+            excluded_features = []
+            
+        # Ensure cv_column is not in excluded_features if it's needed
+        if cv_column is not None and cv_column in excluded_features:
+            logger.info(f"Note: {cv_column} is excluded from features but will be used for CV splits")
         
         # Determine the number of folds from config if not provided.
         cv_folds = cv_folds if cv_folds is not None else mlarchitect.mlarchitect_config['FOLDS']
@@ -212,6 +221,15 @@ class ModelManager:
             Train the model on the training fold and predict on the validation fold.
             Returns the predictions and (if tuning) appends the best parameters.
             """
+            # Remove excluded features from training data (but keep them in dataframe for CV)
+            if excluded_features:
+                features_to_use = [col for col in X_tr.columns if col not in excluded_features]
+                X_tr_features = X_tr[features_to_use]
+                X_val_features = X_val[features_to_use]
+            else:
+                X_tr_features = X_tr
+                X_val_features = X_val
+            
             if self.tuning:
                 # Tuning mode: define the Optuna objective function.
                 def objective(trial):
@@ -221,8 +239,8 @@ class ModelManager:
                         for param, values in self.model_config.params_search.items()
                     }
                     model.set_params(**trial_params)
-                    model.fit(X_tr, y_tr)
-                    preds = model.predict(X_val)
+                    model.fit(X_tr_features, y_tr)
+                    preds = model.predict(X_val_features)
                     if self.pred_transform_func:
                         preds = self.pred_transform_func(preds)
                     return self.optimize_metric(y_val, preds)
@@ -235,15 +253,15 @@ class ModelManager:
 
                 best_model = clone(self.model_config.model)
                 best_model.set_params(**best_params)
-                best_model.fit(X_tr, y_tr)
-                preds_val = best_model.predict(X_val)
+                best_model.fit(X_tr_features, y_tr)
+                preds_val = best_model.predict(X_val_features)
 
                 # Optionally log feature importances if available.
                 if hasattr(best_model, 'named_steps') and 'model' in best_model.named_steps:
                     model_in_pipeline = best_model.named_steps['model']
                     if hasattr(model_in_pipeline, 'feature_importances_'):
                         logger.info(f"Fold {fold_idx} feature importances:")
-                        for name, importance in zip(X_tr.columns, model_in_pipeline.feature_importances_):
+                        for name, importance in zip(X_tr_features.columns, model_in_pipeline.feature_importances_):
                             if importance > 0:
                                 logger.info(f"  {name}: {importance:.4f}")
                 if self.pred_transform_func:
@@ -256,8 +274,8 @@ class ModelManager:
                     
                 # Fit model and make predictions
                 logger.debug(f"Fitting model for fold {fold_idx}")
-                self.model_config.model.fit(X_tr, y_tr)
-                preds_val = self.model_config.model.predict(X_val)
+                self.model_config.model.fit(X_tr_features, y_tr)
+                preds_val = self.model_config.model.predict(X_val_features)
                 
             return preds_val
 
