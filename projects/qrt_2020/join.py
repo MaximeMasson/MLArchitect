@@ -11,16 +11,13 @@ from mlarchitect.joiner import DataJoiner
 # Define source datasets
 sources = [
     'nan_handling', 
-    'basic_statistical_features', 
-    'date_comparison_features', 
-    'stock_comparison_features', 
-    'temporal_features'
+    'mean_std_group', 
 ]
 
 # Define data directories
-data_dir = "transformed/v1/"        # folder containing the parquet files
-output_dir = "joined/v1/"    # folder where joined files will be saved
-processed_dir = "processed/v1/"  # Folder for processed data
+data_dir = "transformed/simple/"        # folder containing the parquet files
+output_dir = "joined/simple/"    # folder where joined files will be saved
+processed_dir = "processed/simple/"  # Folder for processed data
 
 # Define the transformations to apply with added diagnostics
 transformations = {

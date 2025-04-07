@@ -776,3 +776,23 @@ def date_comparison_features(original_df: pd.DataFrame) -> pd.DataFrame:
             new_features[col] = new_features[col].clip(-5, 5)
     
     return pd.DataFrame(new_features, index=original_df.index)
+
+def mean_std_group(original_df: pd.DataFrame) -> pd.DataFrame:
+    # Initialize result DataFrame with original index
+    new_features = pd.DataFrame(index=original_df.index)
+    
+    # Check which grouping columns are available
+    group_cols = ['SECTOR', 'SUB_INDUSTRY', 'INDUSTRY_GROUP', 'INDUSTRY']
+    available_groups = [group for group in group_cols if group in original_df.columns]
+    
+    # Apply transformations for each available group and specified column
+    col = 'RET_1'
+    for group in available_groups:
+        group_mean = original_df.groupby(['DATE', group], group_keys=False)[col].transform('mean')
+        group_std = original_df.groupby(['DATE', group], group_keys=False)[col].transform('std')
+        
+        # Add to result DataFrame
+        new_features[f'{col}_{group.lower()}_mean'] = group_mean
+        new_features[f'{col}_{group.lower()}_std'] = group_std
+    
+    return new_features

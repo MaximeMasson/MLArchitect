@@ -13,7 +13,7 @@ manager = GenerateDataFile(
         data_dir="/transformed/v1",
         train_csv="nan_handling_train.parquet",
         test_csv="nan_handling_test.parquet",
-        output_dir="/transformed/v1",
+        output_dir="/transformed/simple",
         overwrite=True,
         drop_train_na_threshold=None
         )
@@ -22,5 +22,5 @@ manager = GenerateDataFile(
 # manager.add_transformation("basic_statistical_features", tf.basic_statistical_features, keep_original_columns=False)
 # manager.add_transformation("temporal_features", tf.temporal_features, keep_original_columns=False)
 # manager.add_transformation("stock_comparison_features", tf.stock_comparison_features, keep_original_columns=False)
-manager.add_transformation("date_comparison_features", tf.date_comparison_features, keep_original_columns=False)
+manager.add_transformation("mean_std_group", tf.mean_std_group, keep_original_columns=False)
 manager.run_all()

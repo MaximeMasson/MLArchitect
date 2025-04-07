@@ -25,6 +25,9 @@ manager.perform_cv(cv_folds=4, cv_column="DATE")
 # Train the final model on the full training data (combining train and validation splits).
 manager.train_final_model()
 
+# Generate predictions for test data
+manager.predict_test()
+
 # Save the final trained model and its metadata.
 manager.save_model(save_dir="models/v1", model_name="xgboost")
 

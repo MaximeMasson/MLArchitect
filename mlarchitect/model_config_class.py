@@ -10,7 +10,7 @@ from sklearn.ensemble import (
 from sklearn.svm import SVC
 from sklearn.neighbors import KNeighborsClassifier
 from sklearn.naive_bayes import GaussianNB
-from xgboost import XGBClassifier
+from xgboost import XGBClassifier, XGBRegressor
 
 class CreatePipeline:
     def __init__(self, model, params_search):
@@ -41,7 +41,7 @@ configs = {
             'model__random_state': [42],
         }
     ),
-    'xgboost': CreatePipeline(
+    'xgboost_class': CreatePipeline(
         XGBClassifier,
         {
             'model__n_estimators': [50, 100, 200, 300, 400, 500, 600],
@@ -51,6 +51,30 @@ configs = {
             'model__colsample_bytree': [0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0],
             'model__gamma': [0, 1, 2, 3, 4, 5],
             'model__min_child_weight': [1, 2, 3, 4, 5, 6, 7, 8, 9, 10],
+            'model__random_state': [42],
+        }
+    ),
+    'xgboost': CreatePipeline(
+        XGBRegressor,
+        {
+            'model__n_estimators': [50, 100, 200, 300, 400, 500, 600],
+            'model__max_depth': [1, 3, 5, 7, 9, 11, 13, 15],
+            'model__learning_rate': [0.01, 0.05, 0.1, 0.2, 0.3, 0.5],
+            'model__subsample': [0.5, 0.6, 0.7, 0.8, 0.9, 1.0],
+            'model__colsample_bytree': [0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0],
+            'model__gamma': [0, 1, 2, 3, 4, 5],
+            'model__min_child_weight': [1, 2, 3, 4, 5, 6, 7, 8, 9, 10],
+            'model__random_state': [42],
+        }
+    ),
+    'random_forest_class': CreatePipeline(
+        RandomForestClassifier,
+        {
+            'model__n_estimators': [50, 100, 150, 200, 250, 300],
+            'model__max_depth': [10, 20, 30, 40, 50],
+            'model__min_samples_split': [2, 4, 6, 8, 10],
+            'model__min_samples_leaf': [1, 2, 3, 4, 5, 6, 7, 8, 9, 10],
+            'model__max_features': ['sqrt', 'log2', None],
             'model__random_state': [42],
         }
     ),

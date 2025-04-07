@@ -14,7 +14,6 @@ from sklearn import preprocessing
 from sklearn.base import BaseEstimator, ClassifierMixin, TransformerMixin
 from sklearn.metrics import auc, log_loss, roc_curve, r2_score
 from sklearn.utils import check_array
-from tqdm import tqdm
 
 import mlarchitect.const
 from mlarchitect.feature_engineering import FeatureEngineering
@@ -597,4 +596,114 @@ def save_importance_report(model,imp):
   root_path = mlarchitect.mlarchitect_config['PATH']
   model_path = os.path.join(root_path,model)
   imp.to_csv(os.path.join(model_path,'peturb.csv'),index=False)
+
+def remove_highly_correlated_features(df, threshold=0.95, excluded_columns=None):
+    """
+    Remove highly correlated features from a DataFrame.
+    
+    Parameters:
+    -----------
+    df : pandas.DataFrame
+        The input DataFrame containing features.
+    threshold : float, default=0.95
+        Correlation threshold above which features are considered highly correlated.
+    excluded_columns : list, optional
+        List of column names to exclude from correlation analysis.
+        
+    Returns:
+    --------
+    pandas.DataFrame
+        DataFrame with highly correlated features removed.
+    list
+        List of removed feature names.
+    """
+    print(f"Checking for highly correlated features with threshold: {threshold}")
+    
+    # Create a copy of the dataframe
+    df_copy = df.copy()
+    
+    # Default empty list if None
+    if excluded_columns is None:
+        excluded_columns = []
+    
+    # Get columns that should be analyzed (exclude non-numeric and specified columns)
+    columns_to_analyze = [col for col in df_copy.columns if col not in excluded_columns 
+                          and pd.api.types.is_numeric_dtype(df_copy[col])]
+    
+    # Calculate the correlation matrix
+    corr_matrix = df_copy[columns_to_analyze].corr().abs()
+    
+    # Create an upper triangular mask
+    upper = corr_matrix.where(np.triu(np.ones(corr_matrix.shape), k=1).astype(bool))
+    
+    # Find features with correlation greater than threshold
+    to_drop = [column for column in upper.columns if any(upper[column] > threshold)]
+    
+    print(f"Found {len(to_drop)} highly correlated features to remove")
+    
+    # Remove the correlated features
+    df_result = df_copy.drop(columns=to_drop)
+    
+    return df_result, to_drop
+
+def remove_noisy_features(df, noise_std_threshold=3.0, noise_outlier_ratio=0.1, excluded_columns=None):
+    """
+    Remove features that appear to be noisy based on outlier analysis.
+    
+    Parameters:
+    -----------
+    df : pandas.DataFrame
+        The input DataFrame containing features.
+    noise_std_threshold : float, default=3.0
+        Number of standard deviations beyond which values are considered outliers.
+    noise_outlier_ratio : float, default=0.1
+        If a feature has more than this fraction of outliers, it's considered noisy.
+    excluded_columns : list, optional
+        List of column names to exclude from noise analysis.
+        
+    Returns:
+    --------
+    pandas.DataFrame
+        DataFrame with noisy features removed.
+    list
+        List of removed feature names.
+    """
+    print(f"Checking for noisy features (std threshold: {noise_std_threshold}, outlier ratio: {noise_outlier_ratio})")
+    
+    # Create a copy of the dataframe
+    df_copy = df.copy()
+    
+    # Default empty list if None
+    if excluded_columns is None:
+        excluded_columns = []
+    
+    # Get columns that should be analyzed (exclude non-numeric and specified columns)
+    columns_to_analyze = [col for col in df_copy.columns if col not in excluded_columns 
+                          and pd.api.types.is_numeric_dtype(df_copy[col])]
+    
+    noisy_features = []
+    
+    # Analyze each feature for noise
+    for col in columns_to_analyze:
+        # Calculate mean and standard deviation
+        mean = df_copy[col].mean()
+        std = df_copy[col].std()
+        
+        if std == 0:  # Skip constant features
+            continue
+            
+        # Calculate how many values are outliers (beyond threshold standard deviations)
+        outliers = np.abs(df_copy[col] - mean) > (noise_std_threshold * std)
+        outlier_ratio = outliers.mean()
+        
+        # If more than specified ratio of values are outliers, consider the feature noisy
+        if outlier_ratio > noise_outlier_ratio:
+            noisy_features.append(col)
+    
+    print(f"Found {len(noisy_features)} noisy features to remove")
+    
+    # Remove the noisy features
+    df_result = df_copy.drop(columns=noisy_features)
+    
+    return df_result, noisy_features
 
